@@ -1,0 +1,9 @@
+Alembic migrations for RAI-Core.
+
+The database URL is taken from app settings (DATABASE_URL or the SQLite dev
+fallback), so you do not edit alembic.ini for the connection string.
+
+Common commands:
+  alembic revision --autogenerate -m "initial schema"
+  alembic upgrade head
+  alembic downgrade -1
