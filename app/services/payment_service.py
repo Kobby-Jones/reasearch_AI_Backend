@@ -47,6 +47,9 @@ class PaymentService:
             raise ValidationError("User not found.")
 
         amount = settings.price_for(plan, interval)
+        # Apply the student discount when the account is verified.
+        if getattr(user, "student_verified", False) and settings.student_discount_pct > 0:
+            amount = int(round(amount * (100 - settings.student_discount_pct) / 100))
         reference = f"RAI-{uuid.uuid4().hex[:16]}"
         provider = settings.payment_provider
 
@@ -266,6 +269,23 @@ class PaymentService:
             self.db.flush()
             # auto-activate subscription for the billing interval that was paid
             self.subs.activate(payment.user_id, payment.plan, getattr(payment, "interval", None) or "monthly")
+            try:
+                from app.services.notification_service import notify
+                notify(self.db, payment.user_id, "Payment confirmed",
+                       body=f"Your {payment.plan.title()} subscription is now active.",
+                       type="success", link="/billing", commit=False)
+            except Exception:
+                pass
+            try:
+                from app.services.email_service import email_service
+                buyer = self.users.get(payment.user_id)
+                if buyer:
+                    email_service.send_receipt(
+                        buyer.email, payment.plan, payment.amount,
+                        payment.currency, payment.reference,
+                    )
+            except Exception:
+                pass
         else:
             payment.status = "failed"
         self.db.commit()

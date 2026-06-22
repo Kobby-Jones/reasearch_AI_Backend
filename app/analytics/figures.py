@@ -35,14 +35,40 @@ plt.rcParams.update(
 
 def _new_path(out_dir: str, stub: str) -> str:
     os.makedirs(out_dir, exist_ok=True)
-    return os.path.join(out_dir, f"{stub}_{uuid.uuid4().hex[:8]}.png")
+    return os.path.join(out_dir, f"{stub}_{uuid.uuid4().hex[:8]}.{_EXT}")
 
 
 def _save(fig, path: str) -> str:
     fig.tight_layout()
-    fig.savefig(path, bbox_inches="tight", facecolor="white")
+    fig.savefig(path, bbox_inches="tight", facecolor="white", dpi=_DPI)
     plt.close(fig)
     return path
+
+
+# Current export format/resolution, switched by export_figures(). PNG at screen
+# resolution by default; raised to publication quality (or vector) on export.
+_EXT = "png"
+_DPI = 150
+
+
+def export_figures(
+    analysis_type: str, results: dict, out_dir: str, fmt: str = "png", dpi: int = 300
+) -> list[dict]:
+    """Render figures in a publication-grade format (png at high DPI, or svg/pdf).
+
+    Reuses the same chart builders as on-screen figures so what users export
+    matches what they reviewed. Returns the same [{path, caption, kind}] shape.
+    """
+    global _EXT, _DPI
+    fmt = (fmt or "png").lower()
+    if fmt not in {"png", "svg", "pdf"}:
+        fmt = "png"
+    prev_ext, prev_dpi = _EXT, _DPI
+    _EXT, _DPI = fmt, int(dpi)
+    try:
+        return figures_for(analysis_type, results, out_dir)
+    finally:
+        _EXT, _DPI = prev_ext, prev_dpi
 
 
 def figures_for(analysis_type: str, results: dict, out_dir: str) -> list[dict]:

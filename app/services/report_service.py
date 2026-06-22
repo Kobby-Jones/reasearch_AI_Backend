@@ -17,7 +17,7 @@ from app.services.feature_gate import FeatureGate
 from app.services.research_service import ResearchService
 from app.services.subscription_service import SubscriptionService
 from app.analytics import figures
-from app.utils.document_generator import generate_docx, generate_pdf
+from app.utils.document_generator import generate_docx, generate_pdf, generate_latex
 from app.utils.usage_tracker import UsageTracker, AI_CALLS, REPORT_EXPORTS
 
 CHAPTER_TITLES = {
@@ -38,10 +38,11 @@ class ReportService:
         self.research = ResearchService(db)
 
     # ------------------------------------------------------------------ public
-    def generate(
-        self, user_id: int, project_id: int, chapters: list[str], fmt: str,
-        include_analysis_ids: list[int] | None = None,
-    ) -> str:
+    def _compose(
+        self, user_id: int, project_id: int, chapters: list[str],
+        include_analysis_ids: list[int] | None,
+    ):
+        """Build (meta, blocks, gate) shared by every output format."""
         plan_name = self.subs.current_plan_name(user_id)
         gate = FeatureGate(plan_name, self.tracker, user_id)
         gate.check_export()
@@ -50,11 +51,13 @@ class ReportService:
         analyses = self._gather_analyses(project, include_analysis_ids)
         context = self._base_context(project, analyses)
 
-        # Retrieve REAL scholarly sources once; this single library is the source
-        # of truth for every in-text citation and the final reference list.
-        library = build_project_library(
-            project.topic, project.field, self._construct_names(project)
-        )
+        from app.services.reference_service import ReferenceService
+
+        library = ReferenceService(self.db).library_for_project(project.id)
+        if not library:
+            library = build_project_library(
+                project.topic, project.field, self._construct_names(project)
+            )
 
         run_id = uuid.uuid4().hex[:8]
         fig_dir = os.path.join(settings.report_dir, "figures", f"{project.id}_{run_id}")
@@ -71,22 +74,93 @@ class ReportService:
             else:
                 blocks.extend(self._narrative_chapter(ch, context, user_id, library))
 
-        # Reference list = exactly the works actually cited above (no placeholders,
-        # nothing invented). If retrieval found nothing, there is simply no list.
         refs = library.reference_list(used_only=True)
         if refs:
             blocks.append({"type": "pagebreak"})
             blocks.append({"type": "references", "items": refs})
 
-        meta = self._meta(project)
+        return self._meta(project), blocks, gate, project, run_id
+
+    def build_shared_html(
+        self, user_id: int, project_id: int, chapters: list[str],
+        include_analysis_ids: list[int] | None = None,
+    ) -> tuple[str, str]:
+        """Render a self-contained HTML report for a public read-only link."""
+        from app.utils.document_generator import render_html_body, shared_report_page
+
+        meta, blocks, _gate, _project, _run = self._compose(
+            user_id, project_id, chapters, include_analysis_ids
+        )
+        body = render_html_body(meta, blocks)
+        title = meta.get("title", "Research Report")
+        return title, shared_report_page(title, body)
+
+    # ---- shareable read-only links ------------------------------------------
+    def create_share(
+        self, user_id: int, project_id: int, chapters: list[str] | None,
+        include_analysis_ids: list[int] | None = None,
+    ):
+        import secrets
+
+        from app.models.notification import SharedReport
+
+        title, html = self.build_shared_html(
+            user_id, project_id, chapters or ["1", "2", "3", "4", "5"], include_analysis_ids
+        )
+        share = SharedReport(
+            user_id=user_id, project_id=project_id,
+            token=secrets.token_urlsafe(12), title=title, html=html, revoked=False,
+        )
+        self.db.add(share)
+        self.db.commit()
+        self.db.refresh(share)
+        return share
+
+    def list_shares(self, user_id: int):
+        from sqlalchemy import select
+
+        from app.models.notification import SharedReport
+
+        return list(self.db.scalars(
+            select(SharedReport).where(SharedReport.user_id == user_id)
+            .order_by(SharedReport.id.desc())
+        ).all())
+
+    def revoke_share(self, user_id: int, share_id: int) -> None:
+        from app.models.notification import SharedReport
+
+        share = self.db.get(SharedReport, share_id)
+        if share and share.user_id == user_id:
+            share.revoked = True
+            self.db.commit()
+
+    def get_shared_html(self, token: str) -> str | None:
+        from sqlalchemy import select
+
+        from app.models.notification import SharedReport
+
+        share = self.db.scalar(select(SharedReport).where(SharedReport.token == token))
+        if not share or share.revoked:
+            return None
+        return share.html
+
+    def generate(
+        self, user_id: int, project_id: int, chapters: list[str], fmt: str,
+        include_analysis_ids: list[int] | None = None,
+    ) -> str:
+        meta, blocks, gate, project, run_id = self._compose(
+            user_id, project_id, chapters, include_analysis_ids
+        )
 
         os.makedirs(settings.report_dir, exist_ok=True)
-        ext = "docx" if fmt == "docx" else "pdf"
+        ext = {"docx": "docx", "latex": "tex", "tex": "tex"}.get(fmt, "pdf")
         filename = f"report_{project.id}_{run_id}.{ext}"
         path = os.path.join(settings.report_dir, filename)
 
         if fmt == "docx":
             generate_docx(path, meta, blocks, watermark=gate.watermark)
+        elif fmt in ("latex", "tex"):
+            generate_latex(path, meta, blocks, watermark=gate.watermark)
         else:
             generate_pdf(path, meta, blocks, watermark=gate.watermark)
 

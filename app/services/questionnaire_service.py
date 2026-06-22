@@ -56,6 +56,11 @@ class QuestionnaireService:
         self.tracker.increment(user_id, AI_CALLS)
         self.tracker.increment(user_id, QUESTIONNAIRE_GENS)
 
+        # Repair question types deterministically so demographics, counts and
+        # free-text items aren't all rendered as a single Likert scale.
+        from app.services.instrument import normalize_structure
+        structure = normalize_structure(structure)
+
         validation = validate_structure(structure)
         q = Questionnaire(
             project_id=project.id,
@@ -89,6 +94,26 @@ class QuestionnaireService:
             self.db.commit()
             return report
         return validate_structure(structure)
+
+    def update_structure(self, user_id: int, questionnaire_id: int, structure: dict,
+                         title: str | None = None) -> Questionnaire:
+        """Persist author edits to a questionnaire's structure (no auto-typing)."""
+        from app.services.instrument import sanitize_structure
+
+        q = self.repo.get(questionnaire_id)
+        if q is None:
+            raise NotFoundError("Questionnaire not found.")
+        self.research.get_owned(q.project_id, user_id)
+        cleaned = sanitize_structure(structure)
+        q.structure = cleaned
+        if title is not None:
+            q.title = title.strip() or q.title
+        report = validate_structure(cleaned)
+        q.clarity_score = report["clarity_score"]
+        q.validation = report
+        self.db.commit()
+        self.db.refresh(q)
+        return q
 
     def list_for_project(
         self, user_id: int, project_id: int, limit: int = 100, offset: int = 0

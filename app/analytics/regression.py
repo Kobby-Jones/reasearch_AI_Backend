@@ -75,6 +75,9 @@ def linear_regression(
     except Exception:
         dw = None
 
+    from app.analytics.assumptions import regression_assumptions
+    assumptions = regression_assumptions(model, x, model.resid, vif)
+
     return jsonable(
         {
             "dependent": dependent,
@@ -89,6 +92,7 @@ def linear_regression(
             "durbin_watson": dw,
             "coefficients": coeffs,
             "equation": _equation(dependent, model),
+            "assumptions": assumptions,
         }
     )
 

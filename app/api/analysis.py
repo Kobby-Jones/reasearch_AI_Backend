@@ -29,7 +29,56 @@ from app.services.qualitative_service import QualitativeService
 from app.services.secondary_data_service import SecondaryDataService
 from app.services.study_type_service import StudyTypeService
 
+import os
+import tempfile
+
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
+
+from app.analytics.figures import export_figures
+from app.repositories.analysis_repository import AnalysisRepository
+from app.core.config import settings
+from app.core.rate_limit import limit_user
+
 router = APIRouter(prefix="/analysis", tags=["analysis"])
+
+_ai_rl = limit_user("ai", settings.rate_limit_ai_per_min, 60)
+
+
+_FIGURE_MEDIA = {
+    "png": "image/png",
+    "svg": "image/svg+xml",
+    "pdf": "application/pdf",
+}
+
+
+@router.get("/{analysis_id}/figure")
+def export_figure(
+    analysis_id: int,
+    fmt: str = Query("png", pattern="^(png|svg|pdf)$"),
+    index: int = Query(0, ge=0),
+    dpi: int = Query(300, ge=72, le=600),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    """Render a publication-quality figure for a stored analysis.
+
+    PNG is rendered at the requested DPI; SVG and PDF are vector formats.
+    Figures are drawn only from already-computed results (no recomputation).
+    """
+    record = AnalysisRepository(db).get(analysis_id)
+    if not record or record.dataset.project.user_id != user.id:
+        raise HTTPException(404, "Analysis not found.")
+
+    out_dir = tempfile.mkdtemp(prefix="rai_fig_")
+    figures = export_figures(record.analysis_type, record.results or {}, out_dir, fmt=fmt, dpi=dpi)
+    if not figures:
+        raise HTTPException(404, "This analysis has no exportable figure.")
+    if index >= len(figures):
+        index = 0
+    path = figures[index]["path"]
+    filename = f"{record.analysis_type}_figure.{fmt}"
+    return FileResponse(path, media_type=_FIGURE_MEDIA[fmt], filename=filename)
 
 
 @router.post("/run", response_model=AnalysisResultOut, status_code=201)
@@ -57,7 +106,7 @@ def list_analyses(
     return [AnalysisResultOut.model_validate(r) for r in records]
 
 
-@router.post("/secondary", response_model=AutoAnalyzeResult, status_code=201)
+@router.post("/secondary", response_model=AutoAnalyzeResult, status_code=201, dependencies=[Depends(_ai_rl)])
 def secondary_data_analyze(
     payload: SecondaryDataRequest,
     db: Session = Depends(get_db),
@@ -70,7 +119,7 @@ def secondary_data_analyze(
     return AutoAnalyzeResult.model_validate(summary)
 
 
-@router.post("/literature", response_model=AutoAnalyzeResult, status_code=201)
+@router.post("/literature", response_model=AutoAnalyzeResult, status_code=201, dependencies=[Depends(_ai_rl)])
 def literature_review_analyze(
     payload: LiteratureReviewRequest,
     db: Session = Depends(get_db),
@@ -81,7 +130,7 @@ def literature_review_analyze(
     return AutoAnalyzeResult.model_validate(summary)
 
 
-@router.post("/mixed", response_model=AutoAnalyzeResult, status_code=201)
+@router.post("/mixed", response_model=AutoAnalyzeResult, status_code=201, dependencies=[Depends(_ai_rl)])
 def mixed_methods_analyze(
     payload: MixedMethodsRequest,
     db: Session = Depends(get_db),
@@ -96,7 +145,7 @@ def mixed_methods_analyze(
     return AutoAnalyzeResult.model_validate(summary)
 
 
-@router.post("/qualitative", response_model=AutoAnalyzeResult, status_code=201)
+@router.post("/qualitative", response_model=AutoAnalyzeResult, status_code=201, dependencies=[Depends(_ai_rl)])
 def qualitative_analyze(
     payload: QualitativeRequest,
     db: Session = Depends(get_db),
@@ -118,7 +167,7 @@ def qualitative_analyze(
     })
 
 
-@router.post("/study-type", response_model=StudyTypeProposal)
+@router.post("/study-type", response_model=StudyTypeProposal, dependencies=[Depends(_ai_rl)])
 def detect_study_type(
     payload: StudyTypeRequest,
     db: Session = Depends(get_db),
@@ -130,7 +179,7 @@ def detect_study_type(
     return StudyTypeProposal.model_validate(result)
 
 
-@router.post("/propose", response_model=ProposePlanResult)
+@router.post("/propose", response_model=ProposePlanResult, dependencies=[Depends(_ai_rl)])
 def propose_plan(
     payload: ProposePlanRequest,
     db: Session = Depends(get_db),
@@ -141,7 +190,7 @@ def propose_plan(
     return ProposePlanResult.model_validate(plan)
 
 
-@router.post("/auto", response_model=AutoAnalyzeResult, status_code=201)
+@router.post("/auto", response_model=AutoAnalyzeResult, status_code=201, dependencies=[Depends(_ai_rl)])
 def auto_analyze(
     payload: AutoAnalyzeRequest,
     db: Session = Depends(get_db),
@@ -155,7 +204,7 @@ def auto_analyze(
     return AutoAnalyzeResult.model_validate(summary)
 
 
-@router.post("/interpret", response_model=AnalysisResultOut)
+@router.post("/interpret", response_model=AnalysisResultOut, dependencies=[Depends(_ai_rl)])
 def interpret(
     payload: InterpretRequest,
     db: Session = Depends(get_db),

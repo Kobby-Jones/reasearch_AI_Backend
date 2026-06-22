@@ -46,6 +46,29 @@ class Settings(BaseSettings):
     reference_max: int = 40
     reference_timeout: int = 15
     reference_mailto: str = "support@researchai.app"
+    # ---- External data connectors ----
+    connector_timeout: int = 30
+    # ---- Growth ----
+    student_discount_pct: int = 30
+
+    # ---- Transactional email ----
+    # mode: "console" (log only, dev), "smtp" (real send), or "disabled".
+    email_mode: Literal["console", "smtp", "disabled"] = "console"
+    email_from: str = "ResearchAI <no-reply@researchai.app>"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    # Token lifetimes (minutes)
+    verify_token_minutes: int = 60 * 48
+    reset_token_minutes: int = 30
+
+    # ---- Rate limiting ----
+    rate_limit_enabled: bool = True
+    rate_limit_ai_per_min: int = 20          # AI generations per user per minute
+    rate_limit_auth_per_min: int = 10        # auth attempts per IP per minute
+    rate_limit_survey_per_hour: int = 60     # public survey submits per IP per hour
 
     # Payments
     payment_provider: Literal["paystack", "flutterwave"] = "paystack"

@@ -14,4 +14,6 @@ class DatasetOut(BaseModel):
     column_count: int
     schema_info: dict | None = None
     cleaning_report: dict | None = None
+    version: int = 1
+    supersedes_id: int | None = None
     created_at: datetime

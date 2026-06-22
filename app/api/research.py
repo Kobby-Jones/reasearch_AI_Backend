@@ -19,6 +19,9 @@ def create_topic(
     user: User = Depends(get_current_user),
 ) -> ResearchProjectOut:
     project = ResearchService(db).create_from_topic(user.id, payload.topic, payload.field)
+    from app.services.audit_service import audit
+    audit(db, user.id, "project.create", target_type="project", target_id=project.id,
+          summary=f"Created project: {project.topic[:80]}")
     return ResearchProjectOut.model_validate(project)
 
 

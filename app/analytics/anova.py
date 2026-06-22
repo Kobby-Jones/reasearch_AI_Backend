@@ -68,6 +68,9 @@ def one_way_anova(df: pd.DataFrame, dependent: str, group_column: str) -> dict:
     except Exception:
         levene = None
 
+    from app.analytics.assumptions import anova_assumptions
+    assumptions = anova_assumptions(groups, levene)
+
     # Tukey HSD post-hoc (only meaningful when the omnibus test is significant).
     posthoc = []
     if p_value < 0.05 and len(groups) >= 2:
@@ -101,6 +104,7 @@ def one_way_anova(df: pd.DataFrame, dependent: str, group_column: str) -> dict:
             "eta_squared": eta,
             "effect_size": _interpret_eta(eta),
             "levene": levene,
+            "assumptions": assumptions,
             "group_summary": summary,
             "post_hoc": posthoc,
             "chart": {"labels": labels, "means": [s["mean"] for s in summary],

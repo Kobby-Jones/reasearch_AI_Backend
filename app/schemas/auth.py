@@ -9,6 +9,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = None
+    referral_code: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -27,5 +28,7 @@ class UserOut(BaseModel):
     email: EmailStr
     full_name: str | None = None
     is_active: bool
+    email_verified: bool = False
+    student_verified: bool = False
     onboarding_completed: bool = False
     created_at: datetime

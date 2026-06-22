@@ -46,3 +46,21 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         )
     except JWTError:
         return None
+
+
+def create_signed_token(subject: str | int, purpose: str, minutes: int) -> str:
+    """Mint a short-lived, purpose-scoped token (email verification, reset, ...)."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    payload = {"sub": str(subject), "purpose": purpose, "exp": expire}
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
+
+
+def decode_signed_token(token: str, purpose: str) -> str | None:
+    """Return the subject if the token is valid AND matches the expected purpose."""
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+    except JWTError:
+        return None
+    if payload.get("purpose") != purpose:
+        return None
+    return payload.get("sub")

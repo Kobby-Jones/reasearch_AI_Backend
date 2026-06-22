@@ -3,16 +3,20 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.rate_limit import limit_user
 from app.models.user import User
 from app.schemas.viva import VivaRespondRequest, VivaSessionOut, VivaStartRequest
 from app.services.viva_service import VivaService
 
 router = APIRouter(prefix="/viva", tags=["viva"])
 
+_ai_rl = limit_user("ai", settings.rate_limit_ai_per_min, 60)
 
-@router.post("/start", response_model=VivaSessionOut, status_code=201)
+
+@router.post("/start", response_model=VivaSessionOut, status_code=201, dependencies=[Depends(_ai_rl)])
 def start(
     payload: VivaStartRequest,
     db: Session = Depends(get_db),
@@ -34,7 +38,7 @@ def list_sessions(
     return [VivaSessionOut.model_validate(s) for s in sessions]
 
 
-@router.post("/respond", response_model=VivaSessionOut)
+@router.post("/respond", response_model=VivaSessionOut, dependencies=[Depends(_ai_rl)])
 def respond(
     payload: VivaRespondRequest,
     db: Session = Depends(get_db),

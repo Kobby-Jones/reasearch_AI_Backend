@@ -55,3 +55,38 @@ def build_project_library(
         max_refs=max_refs or getattr(settings, "reference_max", 40),
         mailto=_mailto(),
     )
+
+
+def search_candidates(query: str, *, limit: int = 12):
+    """Search scholarly databases for a free-text query; returns Reference objects.
+
+    Reuses the same retrieval/normalisation as the report writer, so curated
+    references are identical in shape to auto-retrieved ones.
+    """
+    if not query or not query.strip():
+        return []
+    lib = build_library(
+        query.strip(), None, [],
+        fetch_json=_httpx_fetch_json,
+        max_refs=limit,
+        per_query=limit,
+        mailto=_mailto(),
+    )
+    return list(lib.references.values())
+
+
+def lookup_doi(doi: str):
+    """Resolve a single DOI via Crossref into a Reference, or None."""
+    from app.ai.references import _parse_crossref  # local import to avoid cycle
+
+    doi = (doi or "").strip().replace("https://doi.org/", "").replace("http://doi.org/", "")
+    if not doi:
+        return None
+    data = _httpx_fetch_json(f"https://api.crossref.org/works/{doi}", {"mailto": _mailto()})
+    if not data or "message" not in data:
+        return None
+    # /works/{doi} returns the item directly under "message"; adapt to the
+    # list shape _parse_crossref expects.
+    wrapped = {"message": {"items": [data["message"]]}}
+    refs = _parse_crossref(wrapped, set())
+    return refs[0] if refs else None

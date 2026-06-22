@@ -9,6 +9,10 @@ from app.models.viva import VivaSession
 from app.models.subscription import Subscription
 from app.models.payment import Payment
 from app.models.usage import UsageRecord
+from app.models.survey import Survey, SurveyResponse
+from app.models.reference import ProjectReference
+from app.models.audit import AuditEvent
+from app.models.notification import Notification, SharedReport
 
 __all__ = [
     "Base",
@@ -21,4 +25,10 @@ __all__ = [
     "Subscription",
     "Payment",
     "UsageRecord",
+    "Survey",
+    "SurveyResponse",
+    "ProjectReference",
+    "AuditEvent",
+    "Notification",
+    "SharedReport",
 ]

@@ -26,6 +26,12 @@ class Dataset(Base, TimestampMixin):
     column_count: Mapped[int] = mapped_column(Integer, default=0)
     schema_info: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cleaning_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Versioning: a revised upload supersedes a prior dataset; analyses are
+    # re-run against the new version so corrections propagate.
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    supersedes_id: Mapped[int | None] = mapped_column(
+        ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True
+    )
 
     project: Mapped["ResearchProject"] = relationship(back_populates="datasets")
     analyses: Mapped[list["AnalysisResult"]] = relationship(

@@ -17,6 +17,13 @@ class QuestionnaireValidateRequest(BaseModel):
     structure: dict | None = None
 
 
+class QuestionnaireUpdateRequest(BaseModel):
+    """Persist author edits to a questionnaire's structure."""
+
+    structure: dict
+    title: str | None = None
+
+
 class QuestionnaireOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

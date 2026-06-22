@@ -40,11 +40,14 @@ def correlation_analysis(
         )
 
     matrix = df[cols].corr(method=method)
+    from app.analytics.assumptions import correlation_assumptions
+    assumptions = correlation_assumptions(df, cols, method)
     return jsonable(
         {
             "method": method,
             "pairs": pairs,
             "matrix": {"columns": cols, "values": matrix.values.tolist()},
+            "assumptions": assumptions,
         }
     )
 

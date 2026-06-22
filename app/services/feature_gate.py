@@ -89,10 +89,35 @@ class FeatureGate:
             return
         used = self.tracker.get(self.user_id, metric)
         if used >= limit:
+            self._warn_once(metric, limit)
             raise UsageLimitError(
                 f"Monthly limit reached for {metric} on the '{self.plan.name}' plan "
                 f"({used}/{limit}). Upgrade to continue."
             )
+
+    _METRIC_LABELS = {
+        ut.QUESTIONNAIRE_GENS: "questionnaire generations",
+        ut.ANALYSIS_RUNS: "analysis runs",
+        ut.REPORT_EXPORTS: "report exports",
+    }
+
+    def _warn_once(self, metric: str, limit: int) -> None:
+        """Email the user the first time they hit a given limit in a period."""
+        try:
+            sentinel = f"warn_{metric}"
+            # increment returns the new count; only the 0->1 transition emails
+            if self.tracker.increment(self.user_id, sentinel) != 1:
+                return
+            from app.repositories.user_repository import UserRepository
+            from app.services.email_service import email_service
+
+            user = UserRepository(self.tracker.repo.db).get(self.user_id)
+            if user:
+                email_service.send_quota_warning(
+                    user.email, self._METRIC_LABELS.get(metric, metric), limit
+                )
+        except Exception:
+            pass
 
     def check_questionnaire(self) -> None:
         self._check_quota(ut.QUESTIONNAIRE_GENS, self.plan.questionnaire_per_month)
