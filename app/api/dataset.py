@@ -131,7 +131,10 @@ def revise(
             if rec.analysis_type not in AnalyticsEngine.SUPPORTED:
                 continue
             try:
-                results = engine.run(rec.analysis_type, df, **(rec.parameters or {}))
+                # `analysis_type` is passed positionally; the stored copy in
+                # parameters (present for manual runs) would collide, so drop it.
+                replay_params = {k: v for k, v in (rec.parameters or {}).items() if k != "analysis_type"}
+                results = engine.run(rec.analysis_type, df, **replay_params)
             except Exception:
                 # a column may no longer exist in the revised data; skip quietly
                 continue

@@ -81,6 +81,19 @@ def export_figure(
     return FileResponse(path, media_type=_FIGURE_MEDIA[fmt], filename=filename)
 
 
+@router.get("/findings")
+def hypothesis_findings(
+    project_id: int = Query(...),
+    dataset_id: int = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Verdicts (supported / not supported / not tested) for each hypothesis."""
+    from app.services.findings_service import FindingsService
+
+    return FindingsService(db).compute(user.id, project_id, dataset_id)
+
+
 @router.post("/run", response_model=AnalysisResultOut, status_code=201)
 def run(
     payload: AnalysisRunRequest,

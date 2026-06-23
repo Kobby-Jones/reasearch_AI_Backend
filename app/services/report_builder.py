@@ -209,17 +209,25 @@ def anova_tables(results: dict) -> list[dict]:
             "rows": rows,
         })
 
+    test_name = results.get("test", "One-way ANOVA")
+    stat_label = results.get("statistic_label", "F")
+    stat_value = results.get("statistic", results.get("f_statistic"))
+    eta = results.get("eta_squared")
+    if eta is None and results.get("epsilon_squared") is not None:
+        eff_value, eff_symbol = results.get("epsilon_squared"), "\u03b5\u00b2"
+    else:
+        eff_value, eff_symbol = eta, "\u03b7\u00b2"
     anova_rows = [[
-        _round(results.get("f_statistic"), 2),
+        _round(stat_value, 2),
         _p(results.get("p_value")),
         _sig(results.get("significant")),
-        _round(results.get("eta_squared")),
+        _round(eff_value),
         (results.get("effect_size") or "").title(),
     ]]
     blocks.append({
         "type": "table",
-        "title": "Analysis of variance (ANOVA) results",
-        "columns": ["F", "p", "Sig.", "\u03b7\u00b2", "Effect size"],
+        "title": f"{test_name} results",
+        "columns": [stat_label, "p", "Sig.", eff_symbol, "Effect size"],
         "rows": anova_rows,
     })
 

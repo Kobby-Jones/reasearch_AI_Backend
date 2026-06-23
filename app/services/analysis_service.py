@@ -50,6 +50,8 @@ class AnalysisService:
                 independents=params.get("independents"),
                 group_column=params.get("group_column"),
                 constructs=params.get("constructs"),
+                variance=params.get("variance", "standard"),
+                nonparametric=params.get("nonparametric", False),
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
@@ -66,6 +68,29 @@ class AnalysisService:
         self.db.commit()
         return record
 
+    def _interpret_context(self, user_id: int, record) -> dict:
+        """Build study context for interpretation: objectives plus the hypotheses
+        this specific analysis tests, each with its deterministic verdict."""
+        project = record.dataset.project
+        ctx: dict = {
+            "topic": project.topic,
+            "field": project.field,
+            "objectives": project.objectives or [],
+        }
+        try:
+            from app.services.findings_service import FindingsService
+            res = FindingsService(self.db).compute(user_id, project.id, record.dataset_id)
+            relevant = [f for f in res["findings"] if f.get("analysis_id") == record.id]
+            if relevant:
+                ctx["hypotheses_tested"] = [
+                    {"label": f["label"], "text": f["text"], "verdict": f["verdict"],
+                     "statistic": f["statistic"], "effect_size": f["effect_size"]}
+                    for f in relevant
+                ]
+        except Exception:
+            pass
+        return ctx
+
     def interpret(self, user_id: int, analysis_id: int, style: str) -> AnalysisResult:
         record = self.results.get(analysis_id)
         if not record or record.dataset.project.user_id != user_id:
@@ -76,8 +101,12 @@ class AnalysisService:
         if advanced:
             gate.check_advanced_interpretation()  # PREMIUM only
 
-        # AI only turns already-computed numbers into prose.
-        text = self.ai.analyze_research(record.analysis_type, record.results, advanced=advanced)
+        # AI only turns already-computed numbers into prose; the study context
+        # (objectives + the hypotheses this result tests, with their deterministic
+        # verdicts) lets it tie the result to the right hypothesis without
+        # re-deciding the verdict.
+        context = self._interpret_context(user_id, record)
+        text = self.ai.analyze_research(record.analysis_type, record.results, advanced=advanced, context=context)
         self.tracker.increment(user_id, AI_CALLS)
 
         record.interpretation = text

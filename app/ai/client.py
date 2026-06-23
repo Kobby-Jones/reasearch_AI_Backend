@@ -131,8 +131,17 @@ class AIClient:
             "and a one-line implication)"
         )
         ctx = f"\nStudy context: {json.dumps(context)}\n" if context else ""
+        guidance = ""
+        if context and context.get("hypotheses_tested"):
+            guidance = (
+                "\nThis result tests the hypotheses listed under 'hypotheses_tested'. Each has a "
+                "deterministic verdict ('supported' / 'not_supported') already decided from the data. "
+                "Reference the relevant hypothesis by its label (e.g. H2), state the outcome in line with "
+                "the GIVEN verdict, and explain what it means in plain language. Do NOT change a verdict "
+                "or declare significance the statistics don't show.\n"
+            )
         prompt = (
-            f"Analysis type: {analysis_type}{ctx}\n"
+            f"Analysis type: {analysis_type}{ctx}{guidance}\n"
             "These results were computed by a deterministic statistics engine. Do NOT change, round, "
             f"or invent any number. Provide {depth}. Reference the exact statistics in APA style.\n\n"
             f"Results:\n{json.dumps(results, indent=2)}"

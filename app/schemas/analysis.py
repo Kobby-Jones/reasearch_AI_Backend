@@ -22,6 +22,10 @@ class AnalysisRunRequest(BaseModel):
         default=None, description="Construct -> item columns (for reliability)"
     )
     method: Literal["pearson", "spearman"] = "pearson"
+    # ANOVA assumption-driven alternatives. `variance="welch"` drops the
+    # equal-variance assumption; `nonparametric=True` runs Kruskal-Wallis.
+    variance: Literal["standard", "welch"] = "standard"
+    nonparametric: bool = False
 
 
 class QualitativeRequest(BaseModel):

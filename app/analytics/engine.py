@@ -59,7 +59,10 @@ class AnalyticsEngine:
     def _regression(self, df, dependent=None, independents=None, **_):
         return linear_regression(df, dependent, independents or [])
 
-    def _anova(self, df, dependent=None, group_column=None, **_):
+    def _anova(self, df, dependent=None, group_column=None, variance="standard", nonparametric=False, **_):
         if not dependent or not group_column:
             raise ValueError("ANOVA requires `dependent` and `group_column`.")
-        return one_way_anova(df, dependent, group_column)
+        return one_way_anova(
+            df, dependent, group_column,
+            variance=variance, nonparametric=bool(nonparametric),
+        )

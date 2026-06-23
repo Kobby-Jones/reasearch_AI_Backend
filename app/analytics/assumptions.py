@@ -15,7 +15,21 @@ Each check is a dict:
       "severity": "ok"|"warning"|"info",
       "message": str,         # plain-language finding
       "recommendation": str,  # what to do if violated ("" if none)
+      "reroute": dict|None,   # one-click alternative when the check fails
     }
+
+When a check fails and a better-suited test exists, the check carries a
+`reroute` hint so the UI can turn the recommendation into a single action:
+
+    {
+      "label": str,            # button text, e.g. "Re-run with Welch's ANOVA"
+      "rationale": str,        # why this alternative is appropriate
+      "analysis_type": str,    # which engine analysis to run
+      "param_overrides": dict, # parameters that switch on the alternative
+    }
+
+The rerun reuses the original analysis's variables (dependent, grouping,
+columns); only the overrides below change. No AI is involved in any judgement.
 """
 from __future__ import annotations
 
@@ -31,7 +45,7 @@ _ALPHA = 0.05
 _MAX_SHAPIRO = 5000  # Shapiro-Wilk is unreliable / slow on very large n
 
 
-def _check(name, test, stat, p, passed, message, recommendation="") -> dict:
+def _check(name, test, stat, p, passed, message, recommendation="", reroute=None) -> dict:
     severity = "ok" if passed else ("warning" if passed is False else "info")
     return {
         "name": name, "test": test,
@@ -39,6 +53,7 @@ def _check(name, test, stat, p, passed, message, recommendation="") -> dict:
         "p_value": None if p is None else float(p),
         "passed": passed, "severity": severity,
         "message": message, "recommendation": recommendation,
+        "reroute": reroute,
     }
 
 
@@ -119,37 +134,76 @@ def regression_assumptions(model, x: pd.DataFrame, resid: np.ndarray, vif: dict)
 
 
 # --- anova -------------------------------------------------------------------
-def anova_assumptions(groups: list[np.ndarray], levene: dict | None) -> list[dict]:
+_WELCH_REROUTE = {
+    "label": "Re-run with Welch's ANOVA",
+    "rationale": "Welch's ANOVA compares group means without assuming equal variances.",
+    "analysis_type": "anova",
+    "param_overrides": {"variance": "welch"},
+}
+_KRUSKAL_REROUTE = {
+    "label": "Re-run with Kruskal-Wallis",
+    "rationale": "The Kruskal-Wallis test ranks the data and does not assume normality.",
+    "analysis_type": "anova",
+    "param_overrides": {"nonparametric": True},
+}
+
+
+def anova_assumptions(
+    groups: list[np.ndarray],
+    levene: dict | None,
+    variance: str = "standard",
+    nonparametric: bool = False,
+) -> list[dict]:
     checks: list[dict] = []
 
-    # Normality within each group (summarised)
-    failed = []
-    tested = 0
-    for i, g in enumerate(groups):
-        res = _normality(np.asarray(g, dtype=float), f"group {i + 1}")
-        if res["passed"] is not None:
-            tested += 1
-            if res["passed"] is False:
-                failed.append(res)
-    if tested:
-        ok = not failed
+    # Kruskal-Wallis is itself the rank-based answer to non-normal groups, so the
+    # normality assumption no longer gates the result.
+    if nonparametric:
         checks.append(_check(
-            "Normality within groups", "Shapiro-Wilk", None, None, ok,
-            "Each group is approximately normal." if ok
-            else f"{len(failed)} of {tested} groups deviate from normality.",
-            "" if ok else "With non-normal groups, consider Kruskal-Wallis instead of ANOVA.",
+            "Distribution within groups", "Kruskal-Wallis (rank-based)", None, None, True,
+            "Kruskal-Wallis ranks the values and does not assume normal groups.",
         ))
+    else:
+        # Normality within each group (summarised)
+        failed = []
+        tested = 0
+        for i, g in enumerate(groups):
+            res = _normality(np.asarray(g, dtype=float), f"group {i + 1}")
+            if res["passed"] is not None:
+                tested += 1
+                if res["passed"] is False:
+                    failed.append(res)
+        if tested:
+            ok = not failed
+            checks.append(_check(
+                "Normality within groups", "Shapiro-Wilk", None, None, ok,
+                "Each group is approximately normal." if ok
+                else f"{len(failed)} of {tested} groups deviate from normality.",
+                "" if ok else "With non-normal groups, consider Kruskal-Wallis instead of ANOVA.",
+                reroute=None if ok else _KRUSKAL_REROUTE,
+            ))
 
     # Homogeneity of variance (Levene, already computed upstream)
     if levene and levene.get("p_value") is not None:
         p = float(levene["p_value"])
         ok = bool(p >= _ALPHA)
-        checks.append(_check(
-            "Homogeneity of variance", "Levene", levene.get("statistic"), p, ok,
-            ("Group variances are comparable (p = %.3f)." % p) if ok
-            else ("Group variances differ (p = %.3f)." % p),
-            "" if ok else "Consider Welch's ANOVA, which does not assume equal variances.",
-        ))
+        if variance == "welch":
+            # Already using the variance-robust test; report Levene for the record
+            # but there is nothing left to act on.
+            checks.append(_check(
+                "Homogeneity of variance", "Levene", levene.get("statistic"), p, True,
+                ("Group variances are comparable (p = %.3f); Welch's correction applied regardless." % p)
+                if ok else
+                ("Group variances differ (p = %.3f), but Welch's ANOVA does not assume equal variances." % p),
+            ))
+        else:
+            checks.append(_check(
+                "Homogeneity of variance", "Levene", levene.get("statistic"), p, ok,
+                ("Group variances are comparable (p = %.3f)." % p) if ok
+                else ("Group variances differ (p = %.3f)." % p),
+                "" if ok else "Consider Welch's ANOVA, which does not assume equal variances.",
+                reroute=None if ok or nonparametric else _WELCH_REROUTE,
+            ))
 
     return jsonable(checks)
 
@@ -180,5 +234,11 @@ def correlation_assumptions(df: pd.DataFrame, columns: list[str], method: str) -
             "Variables are approximately normal, supporting Pearson's r." if ok
             else f"{len(failed)} variable(s) deviate from normality: {', '.join(failed[:4])}.",
             "" if ok else "Spearman's rank correlation is more appropriate for non-normal data.",
+            reroute=None if ok else {
+                "label": "Re-run with Spearman",
+                "rationale": "Spearman's rank correlation does not assume normally distributed variables.",
+                "analysis_type": "correlation",
+                "param_overrides": {"method": "spearman"},
+            },
         ))
     return jsonable(checks)
